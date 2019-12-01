@@ -83,15 +83,21 @@ io.on('connection', function (socket) {
 
   socket.on('delete_todo', function (todoId) {
     const user = socket.handshake.session.user;
-    deleteTodo(todoId)
-        .then(() => {
-          socket.emit('todo_deleted', todoId);
-          socket.broadcast.emit('todo_deleted', todoId);
-        })
-        .catch(error => {
-          socket.emit('todo_not_deleted');
-          console.log(error)
-        });
+    socketIsAuthorized(user._id, todoId).then(authorized => {
+      if (authorized) {
+        deleteTodo(todoId)
+            .then(() => {
+              socket.emit('todo_deleted', todoId);
+              socket.broadcast.emit('todo_deleted', todoId);
+            })
+            .catch(error => {
+              socket.emit('todo_not_deleted');
+              console.log(error)
+            });
+      } else {
+        socket.emit("not_authorized", "Sorry you're not authorized to edit this todo");
+      }
+    });
   });
 
 });
