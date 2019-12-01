@@ -1,0 +1,157 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+  <title>Todo list</title>
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+  <script src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+</head>
+<body>
+<div class="container">
+  <div class="row d-flex justify-content-center">
+    <div class="col">
+      <h1>My todolist</h1>
+      <div class="my-3 d-flex justify-content-between">
+        <div>
+          <span class="font-weight-bold">User:</span> <%= user.name %>
+        </div>
+        <div>
+          <a href="/logout" class="btn btn-danger">Logout</a>
+        </div>
+      </div>
+      <ul class="p-0" id="todo_list">
+        <% for(let i=0;i<todoList.length;i++) { %>
+        <li class="d-flex align-items-center mb-2">
+          <button class="delete-todo btn btn-danger text-white" data-id="<%= todoList[i]._id %>">delete</button>
+          <button class="ml-2 editer btn btn-primary">edit</button>
+          <div class="ml-2 todo">
+            <span class="font-italic"><%= todoList[i].user.name %> -</span>
+            <%= todoList[i].todo %>
+          </div>
+          <form method="post" class="ml-4 edit-form d-none edit-todo-form">
+            <input type="hidden" name="todo_id" class="todo-id" value="<%= todoList[i]._id %>" />
+            <input type="text" name="new_todo" class="form-control mr-2" value="<%= todoList[i].todo %>"/>
+            <button class="btn btn-success mr-2" type="submit">Edit</button>
+            <button class="annuler-edit btn btn-danger" type="button">Cancel</button>
+          </form>
+        </li>
+        <% } %>
+      </ul>
+      <form id="add_todo" method="post" action="/add_todo">
+        <div class="d-flex align-items-center mb-2">
+          <input placeholder="todo" type="text" class="form-control" name="todoItem">
+          <button class="btn btn-primary ml-2">Add</button>
+        </div>
+      </form>
+      <a href="/csv">Export csv file</a>
+    </div>
+  </div>
+</div>
+<script>
+  function editTodo(e){
+    e.preventDefault();
+    $(this).parent().find('.todo').addClass('d-none');
+    $(this).parent().find('.edit-form').removeClass('d-none').addClass('d-flex');
+  }
+
+  function declineEdit(e){
+    $(this).parent().parent().find('.todo').removeClass('d-none');
+    $(this).parent().addClass('d-none').removeClass('d-flex');
+  }
+
+  $('.editer').on('click', editTodo);
+  $('.annuler-edit').on('click', declineEdit);
+</script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+  const socket = io.connect('http://localhost:3000');
+
+  socket.on('test', (message) => {
+    alert(message);
+  });
+
+  socket.on('todo_added', function (todo) {
+    $('#todo_list').prepend(
+            $('<li class="d-flex align-items-center mb-2"></li>')
+                    .append([
+                            $(`<button class="delete-todo btn btn-danger text-white" data-id="${todo._id}">delete</button>`).on('click', deleteTodoItem),
+                            $(`<button class="ml-2 editer btn btn-primary">edit</button>`).addClass('ml-2 editer').on('click', editTodo),
+                            $(`<div class="ml-2 todo"></div>`).append([
+                                    $(`<span class="font-italic">${todo.user.name} -</span>`),
+                                    ` ${todo.todo}`
+                            ]),
+                            $('<form method="post" class="ml-4 edit-form d-none edit-todo-form" />').on('submit', editForm)
+                                    .append([
+                                            $(`<input type="hidden" name="todo_id" class="todo-id" value="${todo._id}" />`),
+                                            $(`<input type="text" name="new_todo" class="form-control mr-2" value="${todo.todo}"/>`),
+                                            $('<button type="submit" class="btn btn-success mr-2">Edit</button>'),
+                                            $('<button class="annuler-edit btn btn-danger" type="button">Cancel</button>').on('click', declineEdit)
+                                    ])
+                    ])
+    );
+  });
+
+  socket.on('todo_not_edited', function () {
+    alert(`Sorry todo not added`);
+  });
+
+  socket.on('todo_edited', function (todo) {
+    $.each($('.todo-id'), function( index, todoInput ) {
+      if (todoInput.value === todo._id) {
+        const li = $(todoInput).parent().parent();
+        li.find('input[name=new_todo]').val(todo.todo);
+        li.find('.todo').removeClass('d-none').html('').append([
+          $(`<span class="font-italic">${todo.user.name} -</span>`),
+          ` ${todo.todo}`
+        ]);
+        li.find('.edit-form').addClass('d-none').removeClass('d-flex');
+      }
+    });
+  });
+
+  socket.on('todo_not_edited', function () {
+    alert("Sorry todo was not edited");
+  });
+
+  socket.on('todo_deleted', function (todoId) {
+    $.each($('.delete-todo'), function( index, todoDeleteBtn ) {
+      if ($(todoDeleteBtn).data('id') === todoId) {
+        $(todoDeleteBtn).parent().remove();
+      }
+    });
+  });
+
+  socket.on('todo_not_deleted', function () {
+    alert("Sorry todo was not deleted");
+  });
+
+  socket.on('not_authorized', function (message) {
+    alert(message);
+  });
+</script>
+
+<script>
+  function editForm(e){
+    e.preventDefault();
+    const todoId = $(this).serializeArray()[0].value;
+    const newTodo = $(this).serializeArray()[1].value;
+    socket.emit('edit_todo', todoId, newTodo);
+  }
+
+  function deleteTodoItem(e){
+    e.preventDefault();
+    socket.emit('delete_todo', $(this).data("id"));
+  }
+
+  $('#add_todo').on('submit', function (e) {
+    e.preventDefault();
+    const todo = $(this).serializeArray()[0].value;
+    socket.emit('add_todo', todo);
+  });
+
+  $('.edit-todo-form').on('submit', editForm);
+
+  $('.delete-todo').on('click', deleteTodoItem);
+</script>
+</body>
+</html>

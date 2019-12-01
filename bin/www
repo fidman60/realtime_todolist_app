@@ -1,0 +1,157 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+import app from '../app';
+import debugModule from 'debug';
+import http from 'http';
+import mongoDbConnect from '../database/mongodb_connect';
+import socket from 'socket.io';
+import sharedsession  from 'express-socket.io-session';
+import {session} from "../app";
+import {addTodo, deleteTodo, editTodo} from "../database/repositories/todoListRepository";
+import socketIsAuthentified from "../middlewares/socket_auth";
+import socketIsAuthorized from "../middlewares/socket_authorize";
+
+/**
+ * Get port from environment and store in Express.
+ */
+
+var port = normalizePort(process.env.PORT || '3000');
+app.set('port', port);
+
+/**
+ * Create HTTP server.
+ */
+
+var server = http.createServer(app);
+
+/**
+ * Listen on provided port, on all network interfaces.
+ */
+
+server.listen(port);
+server.on('error', onError);
+server.on('listening', onListening);
+mongoDbConnect();
+
+const debug = debugModule('realtime-todo-app:server');
+const io = socket(server);
+
+io.use(sharedsession(session));
+io.use(socketIsAuthentified);
+
+io.on('connection', function (socket) {
+
+  console.log("socket connected");
+
+  socket.on('add_todo', function (todo) {
+    const user = socket.handshake.session.user;
+    addTodo(todo, user._id)
+        .then(todo => {
+          socket.emit('todo_added', todo);
+          socket.broadcast.emit('todo_added', todo);
+        })
+        .catch(error => {
+          socket.emit('todo_not_added');
+          console.log(error)
+        });
+  });
+
+  socket.on('edit_todo', function (todoId, newTodo) {
+    const user = socket.handshake.session.user;
+    socketIsAuthorized(user._id, todoId).then(authorized => {
+      if (authorized) {
+        editTodo(todoId, newTodo)
+            .then(todo => {
+              socket.emit('todo_edited', todo);
+              socket.broadcast.emit('todo_edited', todo);
+            })
+            .catch(error => {
+              socket.emit('todo_not_edited');
+              console.log(error)
+            });
+      } else {
+        socket.emit("not_authorized", "Sorry you're not authorized to edit this todo");
+      }
+    });
+    /*
+    */
+  });
+
+  socket.on('delete_todo', function (todoId) {
+    const user = socket.handshake.session.user;
+    deleteTodo(todoId)
+        .then(() => {
+          socket.emit('todo_deleted', todoId);
+          socket.broadcast.emit('todo_deleted', todoId);
+        })
+        .catch(error => {
+          socket.emit('todo_not_deleted');
+          console.log(error)
+        });
+  });
+
+});
+
+/**
+ * Normalize a port into a number, string, or false.
+ */
+
+function normalizePort(val) {
+  var port = parseInt(val, 10);
+
+  if (isNaN(port)) {
+    // named pipe
+    return val;
+  }
+
+  if (port >= 0) {
+    // port number
+    return port;
+  }
+
+  return false;
+}
+
+/**
+ * Event listener for HTTP server "error" event.
+ */
+
+function onError(error) {
+  if (error.syscall !== 'listen') {
+    throw error;
+  }
+
+  var bind = typeof port === 'string'
+    ? 'Pipe ' + port
+    : 'Port ' + port;
+
+  // handle specific listen errors with friendly messages
+  switch (error.code) {
+    case 'EACCES':
+      console.error(bind + ' requires elevated privileges');
+      process.exit(1);
+      break;
+    case 'EADDRINUSE':
+      console.error(bind + ' is already in use');
+      process.exit(1);
+      break;
+    default:
+      throw error;
+  }
+}
+
+/**
+ * Event listener for HTTP server "listening" event.
+ */
+
+function onListening() {
+  var addr = server.address();
+  var bind = typeof addr === 'string'
+    ? 'pipe ' + addr
+    : 'port ' + addr.port;
+  debug('Listening on ' + bind);
+}
